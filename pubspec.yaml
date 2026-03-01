@@ -1,0 +1,33 @@
+name: gaze_nav
+description: >
+  Accessibility Suite - Head-tracking cursor control with double-blink
+  commands, plus Road Crossing Training (Unity).
+
+publish_to: 'none'
+version: 5.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Camera
+  camera: ^0.11.0+2
+
+  # ML Kit face detection (landmarks, classification for blinks)
+  google_mlkit_face_detection: ^0.11.0
+
+  # Existing
+  permission_handler: ^11.3.1
+  vibration: ^2.0.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
