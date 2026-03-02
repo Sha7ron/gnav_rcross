@@ -1,16 +1,16 @@
 /// ===========================================================================
-/// GazeNav v5 - BLINK DETECTOR
+/// GazeNav v5.2 - BLINK DETECTOR (Fixed Sensitivity)
 /// ===========================================================================
 ///
-/// Detects single and double blinks using ML Kit's eyeOpenProbability.
+/// v5.2 FIXES:
+/// - Raised close threshold: 0.3 → 0.5 (ML Kit often doesn't go below 0.4
+///   during quick blinks at low FPS)
+/// - Reduced smoothing alpha: 0.4 → 0.65 (faster response to blink events)
+/// - Reduced min closed duration: 50ms → 20ms (catches quick blinks)
+/// - Added raw threshold check alongside smoothed (belt + suspenders)
+/// - Increased max closed: 400ms → 600ms (more forgiving)
 ///
-/// Blink detection state machine:
-///   OPEN → CLOSING (probability drops below threshold)
-///   CLOSING → CLOSED (stays below threshold for min duration)
-///   CLOSED → OPENING (probability rises above threshold)
-///   OPENING → OPEN (confirmed blink)
-///
-/// Double blink: two confirmed blinks within 600ms window.
+/// Double blink: two confirmed blinks within 700ms window.
 ///
 /// ===========================================================================
 
@@ -19,12 +19,12 @@ import 'package:flutter/foundation.dart';
 enum BlinkState { open, closing, closed, opening }
 
 class BlinkDetector {
-  // ── Thresholds ──
-  static const double _closeThreshold = 0.3;  // Below this = eyes closed
-  static const double _openThreshold = 0.6;   // Above this = eyes open
-  static const int _minClosedMs = 50;          // Min blink duration (ms)
-  static const int _maxClosedMs = 400;         // Max blink duration (rejects long closes)
-  static const int _doubleBinkWindowMs = 600;  // Window for second blink
+  // ── Thresholds (TUNED for real-world ML Kit at 3-5 FPS) ──
+  static const double _closeThreshold = 0.5;   // Was 0.3 - too strict!
+  static const double _openThreshold = 0.6;    // Eyes reopened
+  static const int _minClosedMs = 20;           // Was 50 - catch fast blinks
+  static const int _maxClosedMs = 600;          // Was 400 - more forgiving
+  static const int _doubleBlinkWindowMs = 700;  // Was 600 - slightly more time
 
   // ── State ──
   BlinkState _state = BlinkState.open;
@@ -38,12 +38,18 @@ class BlinkDetector {
 
   // ── Smoothed probability ──
   double _smoothProb = 1.0;
-  static const double _probAlpha = 0.4;
+  static const double _probAlpha = 0.65; // Was 0.4 - faster response now
 
-  /// Process eye open probabilities from ML Kit face detection.
-  /// Call this every frame with both eye probabilities.
+  // ── Raw probability (unsmoothed, for instant threshold checks) ──
+  double _rawProb = 1.0;
+
+  // ── Debug counters ──
+  int _totalBlinks = 0;
+  int _totalDoubleBlinks = 0;
+
+  /// Process eye open probabilities from ML Kit.
   void update(double? leftEyeOpen, double? rightEyeOpen) {
-    // Average both eyes (if one is null, use the other)
+    // Average both eyes
     double prob;
     if (leftEyeOpen != null && rightEyeOpen != null) {
       prob = (leftEyeOpen + rightEyeOpen) / 2.0;
@@ -51,24 +57,41 @@ class BlinkDetector {
       prob = leftEyeOpen ?? rightEyeOpen ?? 1.0;
     }
 
-    // Smooth the probability to avoid noise-triggered blinks
+    _rawProb = prob;
+
+    // Smooth the probability
     _smoothProb += (prob - _smoothProb) * _probAlpha;
 
     final now = DateTime.now();
 
+    // Use the LOWER of raw and smoothed for close detection (more sensitive)
+    // Use the HIGHER for open detection (more robust)
+    final closeProb = _rawProb < _smoothProb ? _rawProb : _smoothProb;
+    final openProb = _rawProb > _smoothProb ? _rawProb : _smoothProb;
+
     switch (_state) {
       case BlinkState.open:
-        if (_smoothProb < _closeThreshold) {
+        if (closeProb < _closeThreshold) {
           _state = BlinkState.closing;
           _closeStartTime = now;
+          debugPrint('BLINK: Eyes closing (prob=${closeProb.toStringAsFixed(2)})');
         }
         break;
 
       case BlinkState.closing:
-        if (_smoothProb > _openThreshold) {
-          // Eyes opened too quickly - probably noise
-          _state = BlinkState.open;
-          _closeStartTime = null;
+        if (openProb > _openThreshold) {
+          // Check if it was long enough to count
+          final elapsed = now.difference(_closeStartTime!).inMilliseconds;
+          if (elapsed >= _minClosedMs) {
+            // Quick valid blink!
+            _state = BlinkState.open;
+            _closeStartTime = null;
+            _onBlinkDetected(now);
+          } else {
+            // Too fast - noise
+            _state = BlinkState.open;
+            _closeStartTime = null;
+          }
         } else {
           final elapsed = now.difference(_closeStartTime!).inMilliseconds;
           if (elapsed >= _minClosedMs) {
@@ -78,73 +101,83 @@ class BlinkDetector {
         break;
 
       case BlinkState.closed:
-        if (_smoothProb > _openThreshold) {
-          _state = BlinkState.opening;
+        if (openProb > _openThreshold) {
+          _state = BlinkState.open;
+          _closeStartTime = null;
+          _onBlinkDetected(now);
         } else {
-          // Check if eyes have been closed too long (not a blink)
+          // Check if closed too long
           final elapsed = now.difference(_closeStartTime!).inMilliseconds;
           if (elapsed > _maxClosedMs) {
-            // Long close - reset, not a blink
             _state = BlinkState.open;
             _closeStartTime = null;
+            debugPrint('BLINK: Long close ignored (${elapsed}ms)');
           }
         }
         break;
 
       case BlinkState.opening:
-      // Confirmed blink!
+      // This state is no longer used in the simplified flow
         _state = BlinkState.open;
-        _closeStartTime = null;
-        _onBlinkDetected(now);
         break;
     }
 
     // Check for expired double-blink window
     if (_blinkCount == 1 && _lastBlinkTime != null) {
       final sinceFirst = now.difference(_lastBlinkTime!).inMilliseconds;
-      if (sinceFirst > _doubleBinkWindowMs) {
-        // Window expired - it was just a single blink
+      if (sinceFirst > _doubleBlinkWindowMs) {
         _blinkCount = 0;
         onSingleBlink?.call();
+        debugPrint('BLINK: Single blink confirmed (window expired)');
       }
     }
   }
 
   void _onBlinkDetected(DateTime now) {
+    _totalBlinks++;
+    debugPrint('BLINK: Blink #$_totalBlinks detected!');
+
     if (_blinkCount == 0) {
-      // First blink - start double-blink window
       _blinkCount = 1;
       _lastBlinkTime = now;
-      debugPrint('BlinkDetector: First blink detected');
     } else if (_blinkCount == 1) {
       final sinceFirst = now.difference(_lastBlinkTime!).inMilliseconds;
-      if (sinceFirst <= _doubleBinkWindowMs) {
-        // Second blink within window = DOUBLE BLINK!
+      if (sinceFirst <= _doubleBlinkWindowMs) {
         _blinkCount = 0;
         _lastBlinkTime = null;
-        debugPrint('BlinkDetector: DOUBLE BLINK!');
+        _totalDoubleBlinks++;
+        debugPrint('BLINK: ★ DOUBLE BLINK #$_totalDoubleBlinks ★');
         onDoubleBlink?.call();
       } else {
-        // Too slow - treat as new first blink
+        onSingleBlink?.call();
         _blinkCount = 1;
         _lastBlinkTime = now;
-        onSingleBlink?.call();
       }
     }
   }
 
-  /// Current smoothed eye open probability (for debug display)
+  /// Current smoothed eye open probability
   double get eyeOpenProbability => _smoothProb;
 
-  /// Current state name (for debug display)
+  /// Raw (unsmoothed) probability
+  double get rawProbability => _rawProb;
+
+  /// Current state name
   String get stateLabel => _state.name.toUpperCase();
 
-  /// Reset detector
+  /// Debug stats
+  int get totalBlinks => _totalBlinks;
+  int get totalDoubleBlinks => _totalDoubleBlinks;
+
+  /// Reset
   void reset() {
     _state = BlinkState.open;
     _closeStartTime = null;
     _lastBlinkTime = null;
     _blinkCount = 0;
     _smoothProb = 1.0;
+    _rawProb = 1.0;
+    _totalBlinks = 0;
+    _totalDoubleBlinks = 0;
   }
 }
