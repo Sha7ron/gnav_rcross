@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GazeNav</string>
+    <string name="accessibility_service_description">GazeNav uses accessibility to perform swipe gestures and draw a navigation overlay on your home screen. This enables head-tracking cursor control and blink-based app selection.</string>
+</resources>
