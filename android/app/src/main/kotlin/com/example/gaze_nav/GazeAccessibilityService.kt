@@ -1,4 +1,4 @@
-package com.example.gazenav
+package com.example.gaze_nav
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -36,10 +36,10 @@ class GazeAccessibilityService : AccessibilityService() {
         const val TAG = "GazeNavService"
 
         // Broadcast actions (from Flutter)
-        const val ACTION_UPDATE_CURSOR = "com.gazenav.UPDATE_CURSOR"
-        const val ACTION_DOUBLE_BLINK = "com.gazenav.DOUBLE_BLINK"
-        const val ACTION_OVERLAY_START = "com.gazenav.OVERLAY_START"
-        const val ACTION_OVERLAY_STOP = "com.gazenav.OVERLAY_STOP"
+        const val ACTION_UPDATE_CURSOR = "com.gaze_nav.UPDATE_CURSOR"
+        const val ACTION_DOUBLE_BLINK = "com.gaze_nav.DOUBLE_BLINK"
+        const val ACTION_OVERLAY_START = "com.gaze_nav.OVERLAY_START"
+        const val ACTION_OVERLAY_STOP = "com.gaze_nav.OVERLAY_STOP"
 
         // Broadcast extras
         const val EXTRA_CURSOR_X = "cursor_x"

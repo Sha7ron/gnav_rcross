@@ -1,4 +1,4 @@
-package com.example.gazenav
+package com.example.gaze_nav
 
 import android.content.Intent
 import android.provider.Settings
@@ -21,7 +21,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     companion object {
-        const val CHANNEL = "com.gazenav/native"
+        const val CHANNEL = "com.gaze_nav/native"
         const val TAG = "GazeNavMain"
     }
 

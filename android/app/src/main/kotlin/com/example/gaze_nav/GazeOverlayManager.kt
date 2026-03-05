@@ -1,4 +1,4 @@
-package com.example.gazenav
+package com.example.gaze_nav
 
 import android.annotation.SuppressLint
 import android.content.Context

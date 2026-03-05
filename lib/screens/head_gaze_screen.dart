@@ -33,7 +33,7 @@ class HeadGazeScreen extends StatefulWidget {
 class _HeadGazeScreenState extends State<HeadGazeScreen>
     with WidgetsBindingObserver {
   // ── Platform channel ──
-  static const _channel = MethodChannel('com.gazenav/native');
+  static const _channel = MethodChannel('com.gaze_nav/native');
 
   // ── Camera ──
   CameraController? _camCtrl;
