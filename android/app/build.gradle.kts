@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.gaze_nav_app"
+    namespace = "com.example.gaze_nav"
     compileSdk = 36
 
     compileOptions {
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.gaze_nav_app"
+        applicationId = "com.example.gaze_nav"
         minSdk = 24
         targetSdk = 36
         versionCode = flutter.versionCode
