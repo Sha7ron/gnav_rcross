@@ -114,7 +114,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
 
   Future<void> _checkAccessibility() async {
     try {
-      final enabled = await _channel.invokeMethod('checkAccessibility');
+      final enabled = await _channel.invokeMethod<bool>('checkAccessibility');
       setState(() => _accessibilityEnabled = enabled == true);
     } catch (e) {
       debugPrint('Accessibility check failed: $e');

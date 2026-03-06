@@ -3,13 +3,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
 
     <application
-        android:label="Accessibility Suite"
+        android:label="Gaze Nav"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
@@ -31,7 +30,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Accessibility Service for gesture dispatch + overlay -->
         <service
             android:name=".GazeAccessibilityService"
             android:exported="false"
@@ -48,5 +46,13 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+
+    <queries>
+        <package android:name="com.gazenav.roadcrossing" />
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
 
 </manifest>

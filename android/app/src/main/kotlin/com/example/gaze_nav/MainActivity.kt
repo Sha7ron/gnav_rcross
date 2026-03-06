@@ -7,17 +7,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/**
- * MainActivity - Flutter <-> Native bridge
- *
- * Platform channel methods:
- *   - checkAccessibility  → returns bool
- *   - openAccessibility   → opens Android settings
- *   - startOverlay        → tells service to show overlay, sends user to home
- *   - stopOverlay         → hides overlay
- *   - updateCursor(x, y)  → sends cursor position to service
- *   - doubleBlink         → sends blink event to service
- */
 class MainActivity : FlutterActivity() {
 
     companion object {
@@ -30,65 +19,64 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "checkAccessibility" -> {
-                        result.success(GazeAccessibilityService.isRunning())
-                    }
-
-                    "openAccessibility" -> {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        startActivity(intent)
-                        result.success(true)
-                    }
-
-                    "startOverlay" -> {
-                        if (!GazeAccessibilityService.isRunning()) {
-                            result.error("NO_SERVICE",
-                                "Accessibility service not enabled", null)
-                            return@setMethodCallHandler
+                try {
+                    when (call.method) {
+                        "checkAccessibility" -> {
+                            result.success(GazeAccessibilityService.isRunning())
                         }
-                        // Tell service to show overlay
-                        val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_START)
-                        sendBroadcast(intent)
+                        "openAccessibility" -> {
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            startActivity(intent)
+                            result.success(true)
+                        }
+                        "startOverlay" -> {
+                            if (!GazeAccessibilityService.isRunning()) {
+                                result.error("NO_SERVICE", "Accessibility service not enabled", null)
+                                return@setMethodCallHandler
+                            }
+                            val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_START)
+                            intent.setPackage(packageName)
+                            sendBroadcast(intent)
 
-                        // Send user to home screen after short delay
-                        android.os.Handler(mainLooper).postDelayed({
-                            val homeIntent = Intent(Intent.ACTION_MAIN)
-                            homeIntent.addCategory(Intent.CATEGORY_HOME)
-                            homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            startActivity(homeIntent)
-                        }, 300)
-
-                        result.success(true)
+                            android.os.Handler(mainLooper).postDelayed({
+                                val homeIntent = Intent(Intent.ACTION_MAIN)
+                                homeIntent.addCategory(Intent.CATEGORY_HOME)
+                                homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                startActivity(homeIntent)
+                            }, 300)
+                            result.success(true)
+                        }
+                        "stopOverlay" -> {
+                            val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_STOP)
+                            intent.setPackage(packageName)
+                            sendBroadcast(intent)
+                            result.success(true)
+                        }
+                        "updateCursor" -> {
+                            val x = call.argument<Double>("x")?.toFloat() ?: 0f
+                            val y = call.argument<Double>("y")?.toFloat() ?: 0f
+                            val intent = Intent(GazeAccessibilityService.ACTION_UPDATE_CURSOR)
+                            intent.setPackage(packageName)
+                            intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_X, x)
+                            intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_Y, y)
+                            sendBroadcast(intent)
+                            result.success(true)
+                        }
+                        "doubleBlink" -> {
+                            val intent = Intent(GazeAccessibilityService.ACTION_DOUBLE_BLINK)
+                            intent.setPackage(packageName)
+                            sendBroadcast(intent)
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
                     }
-
-                    "stopOverlay" -> {
-                        val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_STOP)
-                        sendBroadcast(intent)
-                        result.success(true)
-                    }
-
-                    "updateCursor" -> {
-                        val x = call.argument<Double>("x")?.toFloat() ?: 0f
-                        val y = call.argument<Double>("y")?.toFloat() ?: 0f
-                        val intent = Intent(GazeAccessibilityService.ACTION_UPDATE_CURSOR)
-                        intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_X, x)
-                        intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_Y, y)
-                        sendBroadcast(intent)
-                        result.success(true)
-                    }
-
-                    "doubleBlink" -> {
-                        val intent = Intent(GazeAccessibilityService.ACTION_DOUBLE_BLINK)
-                        sendBroadcast(intent)
-                        result.success(true)
-                    }
-
-                    else -> result.notImplemented()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Method channel error: ${e.message}")
+                    result.error("ERROR", e.message, null)
                 }
             }
 
-        Log.d(TAG, "Flutter engine configured with method channel")
+        Log.d(TAG, "Flutter engine configured")
     }
 }
