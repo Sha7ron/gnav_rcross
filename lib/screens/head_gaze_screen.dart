@@ -82,7 +82,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       if (!_overlayRunning) _camCtrl?.stopImageStream();
     } else if (state == AppLifecycleState.resumed) {
       _startImageStream();

@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
@@ -30,6 +33,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Foreground service to keep camera alive in background -->
+        <service
+            android:name=".GazeForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+
+        <!-- Accessibility service for gesture dispatch + overlay -->
         <service
             android:name=".GazeAccessibilityService"
             android:exported="false"

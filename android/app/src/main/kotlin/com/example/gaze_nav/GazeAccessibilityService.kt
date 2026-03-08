@@ -17,17 +17,6 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 
-enum class GestureType {
-    SWIPE_UP, SWIPE_DOWN, SWIPE_LEFT, SWIPE_RIGHT,
-    GO_HOME, GO_BACK,
-    SCROLL_UP, SCROLL_DOWN,
-    TAP
-}
-
-enum class NavigationMode {
-    HOME_SCREEN, APPS_DRAWER, QUICK_SETTINGS
-}
-
 class GazeAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -41,7 +30,6 @@ class GazeAccessibilityService : AccessibilityService() {
 
         var instance: GazeAccessibilityService? = null
             private set
-
         fun isRunning(): Boolean = instance != null
     }
 
@@ -54,25 +42,15 @@ class GazeAccessibilityService : AccessibilityService() {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            try {
-                when (intent?.action) {
-                    ACTION_UPDATE_CURSOR -> {
-                        val x = intent.getFloatExtra(EXTRA_CURSOR_X, 0f)
-                        val y = intent.getFloatExtra(EXTRA_CURSOR_Y, 0f)
-                        overlayManager?.updateCursorPosition(x, y)
-                    }
-                    ACTION_DOUBLE_BLINK -> {
-                        overlayManager?.onDoubleBlink()
-                    }
-                    ACTION_OVERLAY_START -> {
-                        startOverlay()
-                    }
-                    ACTION_OVERLAY_STOP -> {
-                        stopOverlay()
-                    }
+            when (intent?.action) {
+                ACTION_UPDATE_CURSOR -> {
+                    val x = intent.getFloatExtra(EXTRA_CURSOR_X, 0f)
+                    val y = intent.getFloatExtra(EXTRA_CURSOR_Y, 0f)
+                    overlayManager?.updateCursorPosition(x, y)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Receiver error: ${e.message}", e)
+                ACTION_DOUBLE_BLINK -> overlayManager?.onDoubleBlink()
+                ACTION_OVERLAY_START -> startOverlay()
+                ACTION_OVERLAY_STOP -> stopOverlay()
             }
         }
     }
@@ -120,19 +98,14 @@ class GazeAccessibilityService : AccessibilityService() {
         if (overlayActive) return
         overlayActive = true
         handler.post {
-            try {
-                overlayManager = GazeOverlayManager(
-                    service = this,
-                    windowManager = windowManager,
-                    screenWidth = screenWidth,
-                    screenHeight = screenHeight,
-                    onGestureRequest = { gestureType -> performGazeGesture(gestureType) }
-                )
-                overlayManager?.showOverlay()
-                Log.d(TAG, "Overlay started")
-            } catch (e: Exception) {
-                Log.e(TAG, "Overlay start error: ${e.message}", e)
-            }
+            overlayManager = GazeOverlayManager(
+                service = this,
+                windowManager = windowManager,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                onGestureRequest = { gestureType -> performGazeGesture(gestureType) }
+            )
+            overlayManager?.showOverlay()
         }
     }
 
@@ -157,6 +130,16 @@ class GazeAccessibilityService : AccessibilityService() {
             GestureType.SWIPE_DOWN -> {
                 path.moveTo(screenWidth / 2f, 10f)
                 path.lineTo(screenWidth / 2f, screenHeight * 2f / 3f)
+            }
+            GestureType.SWIPE_DOWN_SHORT -> {
+                // Short swipe to expand quick settings further
+                path.moveTo(screenWidth / 2f, screenHeight / 4f)
+                path.lineTo(screenWidth / 2f, screenHeight / 2f)
+            }
+            GestureType.SWIPE_UP_SHORT -> {
+                // Short swipe up to collapse quick settings
+                path.moveTo(screenWidth / 2f, screenHeight / 2f)
+                path.lineTo(screenWidth / 2f, screenHeight / 4f)
             }
             GestureType.SWIPE_LEFT -> {
                 path.moveTo(screenWidth - 50f, screenHeight / 2f)
@@ -198,33 +181,37 @@ class GazeAccessibilityService : AccessibilityService() {
 
         when (type) {
             GestureType.SWIPE_UP -> {
-                handler.postDelayed({
-                    overlayManager?.setMode(NavigationMode.APPS_DRAWER)
-                }, 500)
+                handler.postDelayed({ overlayManager?.setMode(NavigationMode.APPS_DRAWER) }, 500)
             }
             GestureType.SWIPE_DOWN -> {
-                handler.postDelayed({
-                    overlayManager?.setMode(NavigationMode.QUICK_SETTINGS)
-                }, 500)
+                handler.postDelayed({ overlayManager?.setMode(NavigationMode.QUICK_SETTINGS) }, 500)
             }
             else -> {}
         }
     }
 
     private fun dispatchSwipe(path: Path, duration: Long) {
-        try {
-            val stroke = GestureDescription.StrokeDescription(path, 0, duration)
-            val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(g: GestureDescription?) {
-                    Log.d(TAG, "Gesture completed")
-                }
-                override fun onCancelled(g: GestureDescription?) {
-                    Log.d(TAG, "Gesture cancelled")
-                }
-            }, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Gesture dispatch error: ${e.message}", e)
-        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                Log.d(TAG, "Gesture completed")
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                Log.d(TAG, "Gesture cancelled")
+            }
+        }, null)
     }
+}
+
+enum class GestureType {
+    SWIPE_UP, SWIPE_DOWN, SWIPE_DOWN_SHORT, SWIPE_UP_SHORT,
+    SWIPE_LEFT, SWIPE_RIGHT,
+    GO_HOME, GO_BACK,
+    SCROLL_UP, SCROLL_DOWN,
+    TAP
+}
+
+enum class NavigationMode {
+    HOME_SCREEN, APPS_DRAWER, QUICK_SETTINGS
 }

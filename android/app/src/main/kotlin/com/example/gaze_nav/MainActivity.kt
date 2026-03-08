@@ -1,6 +1,7 @@
 package com.example.gaze_nav
 
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -35,19 +36,36 @@ class MainActivity : FlutterActivity() {
                                 result.error("NO_SERVICE", "Accessibility service not enabled", null)
                                 return@setMethodCallHandler
                             }
-                            val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_START)
-                            intent.setPackage(packageName)
-                            sendBroadcast(intent)
 
+                            // Start foreground service FIRST to keep camera alive
+                            val fgIntent = Intent(this, GazeForegroundService::class.java)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(fgIntent)
+                            } else {
+                                startService(fgIntent)
+                            }
+
+                            // Tell accessibility service to show overlay
+                            val overlayIntent = Intent(GazeAccessibilityService.ACTION_OVERLAY_START)
+                            overlayIntent.setPackage(packageName)
+                            sendBroadcast(overlayIntent)
+
+                            // Go to home screen after short delay
                             android.os.Handler(mainLooper).postDelayed({
                                 val homeIntent = Intent(Intent.ACTION_MAIN)
                                 homeIntent.addCategory(Intent.CATEGORY_HOME)
                                 homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 startActivity(homeIntent)
                             }, 300)
+
                             result.success(true)
                         }
                         "stopOverlay" -> {
+                            // Stop foreground service
+                            val fgIntent = Intent(this, GazeForegroundService::class.java)
+                            stopService(fgIntent)
+
+                            // Hide overlay
                             val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_STOP)
                             intent.setPackage(packageName)
                             sendBroadcast(intent)
@@ -72,11 +90,9 @@ class MainActivity : FlutterActivity() {
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Method channel error: ${e.message}")
+                    Log.e(TAG, "Channel error: ${e.message}")
                     result.error("ERROR", e.message, null)
                 }
             }
-
-        Log.d(TAG, "Flutter engine configured")
     }
 }
