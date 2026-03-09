@@ -98,6 +98,14 @@ class HeadTrackingEngine {
   double get sensitivityX => _sensX;
   double get sensitivityY => _sensY;
 
+  // Calibration data getters (for native tracker)
+  double get baselineMidX => _baseMidX;
+  double get baselineMidY => _baseMidY;
+  double get baselineNoseX => _baseNoseX;
+  double get baselineNoseY => _baseNoseY;
+  double get imageWidth => _imgW;
+  double get imageHeight => _imgH;
+
   int get calibrationProgress {
     switch (_calPhase) {
       case CalibrationPhase.center:

@@ -33,54 +33,61 @@ class MainActivity : FlutterActivity() {
                         }
                         "startOverlay" -> {
                             if (!GazeAccessibilityService.isRunning()) {
-                                result.error("NO_SERVICE", "Accessibility service not enabled", null)
+                                result.error("NO_SERVICE", "Accessibility not enabled", null)
                                 return@setMethodCallHandler
                             }
 
-                            // Start foreground service FIRST to keep camera alive
+                            // Start foreground service with calibration data
+                            // Native camera takes over tracking from Flutter
                             val fgIntent = Intent(this, GazeForegroundService::class.java)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_BASE_MID_X,
+                                call.argument<Double>("baseMidX") ?: 0.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_BASE_MID_Y,
+                                call.argument<Double>("baseMidY") ?: 0.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_BASE_NOSE_X,
+                                call.argument<Double>("baseNoseX") ?: 0.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_BASE_NOSE_Y,
+                                call.argument<Double>("baseNoseY") ?: 0.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_SENS_X,
+                                call.argument<Double>("sensX") ?: 5.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_SENS_Y,
+                                call.argument<Double>("sensY") ?: 4.5)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_IMG_W,
+                                call.argument<Double>("imgW") ?: 640.0)
+                            fgIntent.putExtra(GazeForegroundService.EXTRA_IMG_H,
+                                call.argument<Double>("imgH") ?: 480.0)
+
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 startForegroundService(fgIntent)
                             } else {
                                 startService(fgIntent)
                             }
 
-                            // Tell accessibility service to show overlay
+                            // Show overlay
                             val overlayIntent = Intent(GazeAccessibilityService.ACTION_OVERLAY_START)
                             overlayIntent.setPackage(packageName)
                             sendBroadcast(overlayIntent)
 
-                            // Go to home screen after short delay
+                            // Go home after delay
                             android.os.Handler(mainLooper).postDelayed({
                                 val homeIntent = Intent(Intent.ACTION_MAIN)
                                 homeIntent.addCategory(Intent.CATEGORY_HOME)
                                 homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 startActivity(homeIntent)
-                            }, 300)
+                            }, 500)
 
                             result.success(true)
                         }
                         "stopOverlay" -> {
-                            // Stop foreground service
-                            val fgIntent = Intent(this, GazeForegroundService::class.java)
-                            stopService(fgIntent)
-
-                            // Hide overlay
+                            stopService(Intent(this, GazeForegroundService::class.java))
                             val intent = Intent(GazeAccessibilityService.ACTION_OVERLAY_STOP)
                             intent.setPackage(packageName)
                             sendBroadcast(intent)
                             result.success(true)
                         }
-                        "updateCursor" -> {
-                            val x = call.argument<Double>("x")?.toFloat() ?: 0f
-                            val y = call.argument<Double>("y")?.toFloat() ?: 0f
-                            val intent = Intent(GazeAccessibilityService.ACTION_UPDATE_CURSOR)
-                            intent.setPackage(packageName)
-                            intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_X, x)
-                            intent.putExtra(GazeAccessibilityService.EXTRA_CURSOR_Y, y)
-                            sendBroadcast(intent)
-                            result.success(true)
-                        }
+                        // These are no longer needed for home screen tracking
+                        // but kept for in-app overlay testing
+                        "updateCursor" -> result.success(true)
                         "doubleBlink" -> {
                             val intent = Intent(GazeAccessibilityService.ACTION_DOUBLE_BLINK)
                             intent.setPackage(packageName)
@@ -90,7 +97,7 @@ class MainActivity : FlutterActivity() {
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Channel error: ${e.message}")
+                    Log.e(TAG, "Error: ${e.message}")
                     result.error("ERROR", e.message, null)
                 }
             }

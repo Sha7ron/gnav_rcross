@@ -1,12 +1,3 @@
-/// ===========================================================================
-/// GazeNav v6.1 - HEAD TRACKING + SYSTEM NAVIGATION (Fixed coordinates)
-/// ===========================================================================
-///
-/// FIX: Cursor coordinates sent to native overlay are now in DEVICE PIXELS
-///      (multiplied by devicePixelRatio) instead of Flutter logical pixels.
-///
-/// ===========================================================================
-
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
@@ -19,7 +10,6 @@ import 'blink_detector.dart';
 
 class HeadGazeScreen extends StatefulWidget {
   const HeadGazeScreen({super.key});
-
   @override
   State<HeadGazeScreen> createState() => _HeadGazeScreenState();
 }
@@ -53,20 +43,13 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
     _faceDetector = FaceDetector(
-      options: FaceDetectorOptions(
-        enableClassification: true,
-        enableLandmarks: true,
-        enableContours: false,
-        enableTracking: true,
-        performanceMode: FaceDetectorMode.fast,
-      ),
-    );
-
+        options: FaceDetectorOptions(
+            enableClassification: true, enableLandmarks: true,
+            enableContours: false, enableTracking: true,
+            performanceMode: FaceDetectorMode.fast));
     _blinkDetector.onDoubleBlink = _onDoubleBlink;
     _blinkDetector.onSingleBlink = () {};
-
     _initCamera();
     _checkAccessibility();
   }
@@ -82,11 +65,15 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      if (!_overlayRunning) _camCtrl?.stopImageStream();
-    } else if (state == AppLifecycleState.resumed) {
-      _startImageStream();
+    if (state == AppLifecycleState.resumed) {
+      // When returning to app, restart Flutter camera for in-app use
+      if (!_overlayRunning) _startImageStream();
       _checkAccessibility();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      // When overlay is running, native handles tracking - stop Flutter camera
+      // When not running, also stop (normal behavior)
+      _camCtrl?.stopImageStream();
     }
   }
 
@@ -94,9 +81,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
     try {
       final enabled = await _channel.invokeMethod('checkAccessibility');
       setState(() => _accessibilityEnabled = enabled == true);
-    } catch (e) {
-      debugPrint('Accessibility check: $e');
-    }
+    } catch (_) {}
   }
 
   Future<void> _openAccessibilitySettings() async {
@@ -110,8 +95,23 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
           const SnackBar(content: Text('Please complete calibration first')));
       return;
     }
+
     try {
-      await _channel.invokeMethod('startOverlay');
+      // Pass calibration data to native tracker
+      await _channel.invokeMethod('startOverlay', {
+        'baseMidX': _headTracker.baselineMidX,
+        'baseMidY': _headTracker.baselineMidY,
+        'baseNoseX': _headTracker.baselineNoseX,
+        'baseNoseY': _headTracker.baselineNoseY,
+        'sensX': _headTracker.sensitivityX,
+        'sensY': _headTracker.sensitivityY,
+        'imgW': _headTracker.imageWidth,
+        'imgH': _headTracker.imageHeight,
+      });
+
+      // Stop Flutter camera - native takes over
+      _camCtrl?.stopImageStream();
+
       setState(() => _overlayRunning = true);
       HapticFeedback.heavyImpact();
     } catch (e) {
@@ -124,34 +124,33 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
     try {
       await _channel.invokeMethod('stopOverlay');
       setState(() => _overlayRunning = false);
+      // Restart Flutter camera for in-app use
+      _startImageStream();
     } catch (_) {}
   }
 
   void _showAccessibilityDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1F38),
-        title: const Text('Accessibility Service Required',
-            style: TextStyle(color: Colors.white)),
-        content: const Text(
-            'GazeNav needs the Accessibility Service to perform gestures '
-                'on your home screen.\n\n'
-                'Go to: Settings → Accessibility → Installed Services → Gaze Nav',
-            style: TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: () { Navigator.pop(ctx); _openAccessibilitySettings(); },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
-              child: const Text('Open Settings')),
-        ],
-      ),
-    );
+    showDialog(context: context,
+        builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1F38),
+            title: const Text('Accessibility Service Required',
+                style: TextStyle(color: Colors.white)),
+            content: const Text(
+                'GazeNav needs the Accessibility Service to perform gestures '
+                    'on your home screen.\n\n'
+                    'Go to: Settings > Accessibility > Installed Services > Gaze Nav',
+                style: TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () { Navigator.pop(ctx); _openAccessibilitySettings(); },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+                  child: const Text('Open Settings')),
+            ]));
   }
 
-  // ── Camera ──
+  // ── Camera (Flutter side, for calibration only) ──
   Future<void> _initCamera() async {
     final cameras = await availableCameras();
     final front = cameras.firstWhere(
@@ -176,7 +175,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
   }
 
   void _onCameraFrame(CameraImage image) {
-    if (_processing) return;
+    if (_processing || _overlayRunning) return;
     _processing = true;
     _processFrame(image).then((_) => _processing = false);
   }
@@ -187,62 +186,32 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
       if (inputImage == null) return;
       final faces = await _faceDetector.processImage(inputImage);
       if (!mounted) return;
-
       if (faces.isEmpty) {
-        if (!_overlayRunning) {
-          setState(() { _faceDetected = false; _statusText = 'No face detected';
-          _statusColor = Colors.orange; });
-        }
+        setState(() { _faceDetected = false; _statusText = 'No face detected';
+        _statusColor = Colors.orange; });
         return;
       }
-
       final face = faces.first;
       final imageSize = Size(image.width.toDouble(), image.height.toDouble());
       final tracked = _headTracker.processFace(face, imageSize);
+      _blinkDetector.update(face.leftEyeOpenProbability, face.rightEyeOpenProbability);
 
-      _blinkDetector.update(
-          face.leftEyeOpenProbability, face.rightEyeOpenProbability);
-
-      if (tracked) {
-        final screenSize = MediaQuery.of(context).size;
-        _cursorPos = _headTracker.toScreenPosition(screenSize);
-
-        // ══════════════════════════════════════════
-        // FIX: Send DEVICE PIXELS to native overlay
-        // Flutter logical pixels * devicePixelRatio = device pixels
-        // ══════════════════════════════════════════
-        if (_overlayRunning) {
-          final dpr = MediaQuery.of(context).devicePixelRatio;
-          _sendCursorToNative(_cursorPos.dx * dpr, _cursorPos.dy * dpr);
+      setState(() {
+        _faceDetected = true;
+        if (!_headTracker.isCalibrated) {
+          _statusText = _headTracker.calibrationInstruction;
+          _statusColor = Colors.amber;
+        } else if (tracked) {
+          _cursorPos = _headTracker.toScreenPosition(MediaQuery.of(context).size);
+          _statusText = 'Calibrated — Ready!';
+          _statusColor = Colors.green;
         }
-      }
-
-      if (!_overlayRunning) {
-        setState(() {
-          _faceDetected = true;
-          if (!_headTracker.isCalibrated) {
-            _statusText = _headTracker.calibrationInstruction;
-            _statusColor = Colors.amber;
-          } else {
-            _statusText = 'Calibrated — Ready!';
-            _statusColor = Colors.green;
-          }
-          _frameCount++;
-          final now = DateTime.now();
-          if (now.difference(_fpsTime).inMilliseconds >= 1000) {
-            _fps = _frameCount; _frameCount = 0; _fpsTime = now;
-          }
-        });
-      }
+        _frameCount++;
+        final now = DateTime.now();
+        if (now.difference(_fpsTime).inMilliseconds >= 1000) {
+          _fps = _frameCount; _frameCount = 0; _fpsTime = now; }
+      });
     } catch (e) { debugPrint('Frame error: $e'); }
-  }
-
-  void _sendCursorToNative(double x, double y) {
-    try { _channel.invokeMethod('updateCursor', {'x': x, 'y': y}); } catch (_) {}
-  }
-
-  void _sendBlinkToNative() {
-    try { _channel.invokeMethod('doubleBlink'); } catch (_) {}
   }
 
   InputImage? _buildInputImage(CameraImage image) {
@@ -259,22 +228,22 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
 
   void _onDoubleBlink() {
     HapticFeedback.heavyImpact();
-    if (_overlayRunning) { _sendBlinkToNative(); return; }
+    if (_overlayRunning) {
+      try { _channel.invokeMethod('doubleBlink'); } catch (_) {}
+      return;
+    }
     setState(() => _showBlinkFlash = true);
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => _showBlinkFlash = false);
-    });
+      if (mounted) setState(() => _showBlinkFlash = false); });
   }
 
   // ── UI ──
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E21),
-      body: Stack(
-        children: [
+        backgroundColor: const Color(0xFF0A0E21),
+        body: Stack(children: [
           SafeArea(child: Column(children: [
             const SizedBox(height: 20),
             Row(children: [
@@ -292,7 +261,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
                     Text(_statusText, style: TextStyle(color: _statusColor, fontSize: 12)),
                   ])),
               const Spacer(),
-              if (_camReady) ClipRRect(
+              if (_camReady && !_overlayRunning) ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Container(width: 70, height: 95,
                       decoration: BoxDecoration(
@@ -308,13 +277,11 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
             const SizedBox(height: 30),
             const Text('GazeNav', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            Text('Head tracking navigation', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14)),
+            Text('Head tracking navigation',
+                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14)),
             const SizedBox(height: 30),
-            // Accessibility status
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Container(
-                    padding: const EdgeInsets.all(16),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Container(padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
                         color: Colors.white.withOpacity(0.05),
@@ -329,16 +296,27 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
                           style: TextStyle(color: _accessibilityEnabled ? Colors.green : Colors.orange, fontSize: 14))),
                       if (!_accessibilityEnabled)
                         GestureDetector(onTap: _openAccessibilitySettings,
-                            child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
                                     color: Colors.orange.withOpacity(0.2)),
-                                child: const Text('Enable', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)))),
+                                child: const Text('Enable',
+                                    style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)))),
                     ]))),
+            if (_overlayRunning)
+              Padding(padding: const EdgeInsets.only(top: 20, left: 32, right: 32),
+                  child: Container(padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.cyan.withOpacity(0.1),
+                          border: Border.all(color: Colors.cyan.withOpacity(0.3))),
+                      child: const Row(children: [
+                        Icon(Icons.visibility, color: Colors.cyan, size: 20),
+                        SizedBox(width: 10),
+                        Expanded(child: Text('Native tracking active on home screen',
+                            style: TextStyle(color: Colors.cyan, fontSize: 13))),
+                      ]))),
             const Spacer(),
-            // RUN APP button
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: GestureDetector(
                     onTap: _overlayRunning ? _stopNavigation : _startNavigation,
                     child: AnimatedContainer(
@@ -355,7 +333,8 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
                                 blurRadius: 20, spreadRadius: 2)] : []),
                         child: Center(child: Text(
                             _overlayRunning ? 'STOP & RETURN' : 'RUN APP',
-                            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2)))))),
+                            style: const TextStyle(color: Colors.white, fontSize: 20,
+                                fontWeight: FontWeight.bold, letterSpacing: 2)))))),
             const SizedBox(height: 20),
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               _controlButton(icon: Icons.center_focus_strong, label: 'Recalibrate',
@@ -368,7 +347,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
             const SizedBox(height: 20),
           ])),
 
-          // Calibration targets
+          // Calibration
           if (_headTracker.calibrationPhase == CalibrationPhase.center && _faceDetected)
             _buildCalTarget(screenSize.width / 2, screenSize.height / 2, 'Look here'),
           if (_headTracker.calibrationPhase == CalibrationPhase.rangeLeft && _faceDetected)
@@ -379,7 +358,6 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
             _buildCalTarget(screenSize.width / 2, 80, 'Look UP'),
           if (_headTracker.calibrationPhase == CalibrationPhase.rangeDown && _faceDetected)
             _buildCalTarget(screenSize.width / 2, screenSize.height - 120, 'Look DOWN'),
-
           if (!_headTracker.isCalibrated && _faceDetected)
             Positioned(bottom: 200, left: 40, right: 40,
                 child: Column(children: [
@@ -401,7 +379,7 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
                                     style: TextStyle(color: Colors.white54, fontSize: 12))))),
                 ])),
 
-          // In-app cursor
+          // In-app cursor (only when NOT on home screen)
           if (_headTracker.isCalibrated && _faceDetected && !_overlayRunning)
             Positioned(left: _cursorPos.dx - 22, top: _cursorPos.dy - 22,
                 child: IgnorePointer(child: Container(width: 44, height: 44,
@@ -421,19 +399,12 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
                     decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text('Pos: (${_cursorPos.dx.toInt()}, ${_cursorPos.dy.toInt()})  dpr: ${MediaQuery.of(context).devicePixelRatio.toStringAsFixed(1)}', style: _debugStyle),
+                          Text('Pos: (${_cursorPos.dx.toInt()}, ${_cursorPos.dy.toInt()})', style: _debugStyle),
                           Text('FPS: $_fps  Overlay: $_overlayRunning', style: _debugStyle),
+                          Text('Sens: (${_headTracker.sensitivityX.toStringAsFixed(1)}, ${_headTracker.sensitivityY.toStringAsFixed(1)})', style: _debugStyle),
                           Text('Eyes: ${_blinkDetector.rawProbability.toStringAsFixed(2)} [${_blinkDetector.stateLabel}]', style: _debugStyle),
-                          Text('Blinks: ${_blinkDetector.totalBlinks} Dbl: ${_blinkDetector.totalDoubleBlinks} Long: ${_blinkDetector.totalLongBlinks}',
-                              style: TextStyle(color: (_blinkDetector.totalDoubleBlinks + _blinkDetector.totalLongBlinks) > 0
-                                  ? Colors.greenAccent : Colors.white70, fontSize: 11, fontFamily: 'monospace', height: 1.5)),
-                          if (_blinkDetector.lastTrigger.isNotEmpty)
-                            Text('Last: ${_blinkDetector.lastTrigger}',
-                                style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontFamily: 'monospace')),
                         ]))),
-        ],
-      ),
-    );
+        ]));
   }
 
   Widget _buildCalTarget(double x, double y, String label) {
@@ -450,7 +421,8 @@ class _HeadGazeScreenState extends State<HeadGazeScreen>
         ]));
   }
 
-  TextStyle get _debugStyle => const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace', height: 1.5);
+  TextStyle get _debugStyle => const TextStyle(
+      color: Colors.white70, fontSize: 11, fontFamily: 'monospace', height: 1.5);
 
   Widget _controlButton({required IconData icon, required String label,
     required VoidCallback onTap, Color color = Colors.white}) {
